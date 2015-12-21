@@ -124,6 +124,7 @@ class XilinxBscanSpi(xilinx.XilinxPlatform):
         ("ffg1156-1", 1): ["V30", None, "AA33", "AA34", "Y33", "Y34"],
         ("ffg1157-1", 1): ["AL33", None, "AN33", "AN34", "AK34", "AL34"],
         ("ffg1158-1", 1): ["C24", None, "A23", "A24", "B26", "A26"],
+        ("ffg1926-1", 1): ["AK33", None, "AN34", "AN35", "AJ34", "AK34"],
         ("fhg1761-1", 1): ["AL36", None, "AM36", "AN36", "AJ36", "AJ37"],
         ("flg1155-1", 1): ["AL28", None, "AE28", "AF28", "AJ29", "AJ30"],
         ("flg1932-1", 1): ["V32", None, "T33", "R33", "U31", "T31"],
