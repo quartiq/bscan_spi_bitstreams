@@ -20,11 +20,14 @@ from migen.build import xilinx
 
 """
 This migen script produces proxy bitstreams to allow programming SPI flashes
-behind FPGAs. JTAG signalling is connected directly to SPI signalling. CS_N is
-asserted when the JTAG IR contains the USER1 instruction and the state is
-SHIFT-DR.
+behind FPGAs.
 
-Xilinx bscan cells sample TDO on falling TCK and forward it.
+Bitstream binaries build with this script are available at:
+https://github.com/jordens/bscan_spi_bitstreams
+
+JTAG signalling is connected directly to SPI signalling. CS_N is
+asserted when the JTAG IR contains the USER1 instruction and the state is
+SHIFT-DR. Xilinx bscan cells sample TDO on falling TCK and forward it.
 MISO requires sampling on rising CLK and leads to one cycle of latency.
 
 https://github.com/m-labs/migen
