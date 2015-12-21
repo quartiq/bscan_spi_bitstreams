@@ -13,11 +13,11 @@
 #  GNU General Public License for more details.
 #
 
-from migen.fhdl.std import *
-from mibuild.generic_platform import *
-from mibuild.xilinx import XilinxPlatform
-from mibuild.xilinx.vivado import XilinxVivadoToolchain
-from mibuild.xilinx.ise import XilinxISEToolchain
+from migen import *
+from migen.build.generic_platform import *
+from migen.build.xilinx import XilinxPlatform
+from migen.build.xilinx.vivado import XilinxVivadoToolchain
+from migen.build.xilinx.ise import XilinxISEToolchain
 
 
 """
