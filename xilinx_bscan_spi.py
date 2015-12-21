@@ -78,9 +78,10 @@ class Series7(Module):
     toolchain = "vivado"
 
     def __init__(self, platform):
-        platform.toolchain.bitstream_commands.append(
-            "set_property BITSTREAM.GENERAL.COMPRESS True [current_design]"
-        )
+        platform.toolchain.bitstream_commands.extend([
+            "set_property BITSTREAM.GENERAL.COMPRESS True [current_design]",
+            "set_property BITSTREAM.CONFIG.UNUSEDPIN Pullnone [current_design]",
+        ])
         self.clock_domains.cd_jtag = ClockDomain(reset_less=True)
         spi = platform.request("spiflash")
         clk = Signal()
