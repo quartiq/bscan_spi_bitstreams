@@ -15,9 +15,7 @@
 
 from migen import *
 from migen.build.generic_platform import *
-from migen.build.xilinx import XilinxPlatform
-from migen.build.xilinx.vivado import XilinxVivadoToolchain
-from migen.build.xilinx.ise import XilinxISEToolchain
+from migen.build import xilinx
 
 
 """
@@ -35,8 +33,10 @@ https://github.com/m-labs/migen
 
 class Spartan3(Module):
     macro = "BSCAN_SPARTAN3"
+    toolchain = "ise"
 
     def __init__(self, platform):
+        platform.toolchain.bitgen_opt += " -g compress -g UnusedPin:Pullup"
         self.clock_domains.cd_jtag = ClockDomain(reset_less=True)
         spi = platform.request("spiflash")
         shift = Signal()
@@ -58,7 +58,10 @@ class Spartan3A(Spartan3):
 
 
 class Spartan6(Module):
+    toolchain = "ise"
+
     def __init__(self, platform):
+        platform.toolchain.bitgen_opt += " -g compress -g UnusedPin:Pullup"
         self.clock_domains.cd_jtag = ClockDomain(reset_less=True)
         spi = platform.request("spiflash")
         shift = Signal()
@@ -72,7 +75,12 @@ class Spartan6(Module):
 
 
 class Series7(Module):
+    toolchain = "vivado"
+
     def __init__(self, platform):
+        platform.toolchain.bitstream_commands.append(
+            "set_property BITSTREAM.GENERAL.COMPRESS True [current_design]"
+        )
         self.clock_domains.cd_jtag = ClockDomain(reset_less=True)
         spi = platform.request("spiflash")
         clk = Signal()
@@ -89,7 +97,7 @@ class Series7(Module):
                                   i_USRCCLKTS=0, i_USRDONEO=1, i_USRDONETS=1)
 
 
-class XilinxBscanSpi(XilinxPlatform):
+class XilinxBscanSpi(xilinx.XilinxPlatform):
     packages = {
         # (package-speedgrade, id): [cs_n, clk, mosi, miso, *pullups]
         ("cp132", 1): ["M2", "N12", "N2", "N8"],
@@ -186,7 +194,7 @@ class XilinxBscanSpi(XilinxPlatform):
         "xc7vx980t": ("ffg1926-1", 1, "LVCMOS18", Series7),
     }
 
-    def __init__(self, device, pins, std):
+    def __init__(self, device, pins, std, toolchain="ise"):
         cs_n, clk, mosi, miso = pins[:4]
         io = ["spiflash", 0,
               Subsignal("cs_n", Pins(cs_n)),
@@ -198,20 +206,13 @@ class XilinxBscanSpi(XilinxPlatform):
             io.append(Subsignal("clk", Pins(clk)))
         for i, p in enumerate(pins[4:]):
             io.append(Subsignal("pullup{}".format(i), Pins(p), Misc("PULLUP")))
-
-        XilinxPlatform.__init__(self, device, [io])
-        if isinstance(self.toolchain, XilinxVivadoToolchain):
-            self.toolchain.bitstream_commands.append(
-                "set_property BITSTREAM.GENERAL.COMPRESS True [current_design]"
-            )
-        elif isinstance(self.toolchain, XilinxISEToolchain):
-            self.toolchain.bitgen_opt += " -g compress -g UnusedPins:PullUp"
+        xilinx.XilinxPlatform.__init__(self, device, [io], toolchain=toolchain)
 
     @classmethod
     def make(cls, device, errors=False):
         pkg, id, std, Top = cls.pinouts[device]
         pins = cls.packages[(pkg, id)]
-        platform = cls("{}-{}".format(device, pkg), pins, std)
+        platform = cls("{}-{}".format(device, pkg), pins, std, Top.toolchain)
         top = Top(platform)
         name = "bscan_spi_{}".format(device)
         dir = "build_{}".format(device)
