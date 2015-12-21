@@ -205,7 +205,7 @@ class XilinxBscanSpi(XilinxPlatform):
                 "set_property BITSTREAM.GENERAL.COMPRESS True [current_design]"
             )
         elif isinstance(self.toolchain, XilinxISEToolchain):
-            self.toolchain.bitgen_opt += " -g compress"
+            self.toolchain.bitgen_opt += " -g compress -g UnusedPins:PullUp"
 
     @classmethod
     def make(cls, device, errors=False):
