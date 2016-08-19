@@ -111,6 +111,46 @@ class Series7(mg.Module):
             i_USRCCLKTS=0, i_USRDONEO=1, i_USRDONETS=1)
 
 
+class Ultrascale(Module):
+    toolchain = "vivado"
+
+    def __init__(self, platform):
+        platform.toolchain.bitstream_commands.extend([
+            "set_property BITSTREAM.GENERAL.COMPRESS True [current_design]",
+            "set_property BITSTREAM.CONFIG.UNUSEDPIN Pullnone [current_design]",
+        ])
+        self.clock_domains.cd_jtag = ClockDomain(reset_less=True)
+        spi = platform.request("spiflash")
+        clk = Signal()
+        shift = Signal()
+        tdo = Signal()
+        sel = Signal()
+        shift1 = Signal()
+        sel1 = Signal()
+        do = Signal(4)
+        tdo1 = Signal()
+        di = Signal(4)
+        self.comb += [
+            self.cd_jtag.clk.eq(clk),
+            spi.cs_n.eq(~(shift & sel)),
+        ]
+        self.sync.jtag += [
+            tdo.eq(spi.miso),
+            tdo1.eq(di[1]),
+        ]
+        self.specials += Instance("BSCANE2", p_JTAG_CHAIN=2,
+                                  o_SHIFT=shift, o_SEL=sel,
+                                  o_TDI=spi.mosi, i_TDO=tdo)
+        self.specials += Instance("BSCANE2", p_JTAG_CHAIN=1,
+                                  o_SHIFT=shift1, o_TCK=clk, o_SEL=sel1,
+                                  o_TDI=do[0], i_TDO=tdo1)
+        self.specials += Instance("STARTUPE3", i_GSR=0, i_GTS=0,
+                                  i_KEYCLEARB=0, i_PACK=1, i_USRCCLKO=clk,
+                                  i_USRCCLKTS=0, i_USRDONEO=1, i_USRDONETS=1,
+                                  i_FCSBO=~(shift1 & sel1), i_FCSBTS=0,
+                                  o_DI=di, i_DO=do, i_DTS=0b0010),
+
+
 class XilinxBscanSpi(xilinx.XilinxPlatform):
     packages = {
         # (package-speedgrade, id): [cs_n, clk, mosi, miso, *pullups]
@@ -142,6 +182,8 @@ class XilinxBscanSpi(xilinx.XilinxPlatform):
         ("flg1155-1", 1): ["AL28", None, "AE28", "AF28", "AJ29", "AJ30"],
         ("flg1932-1", 1): ["V32", None, "T33", "R33", "U31", "T31"],
         ("flg1926-1", 1): ["AK33", None, "AN34", "AN35", "AJ34", "AK34"],
+
+        ("ffva1156-2-e", 1): ["G26", None, "M20", "L20", "R21", "R22"],
     }
 
     pinouts = {
@@ -207,6 +249,8 @@ class XilinxBscanSpi(xilinx.XilinxPlatform):
         "xc7vx550t": ("ffg1158-1", 1, "LVCMOS18", Series7),
         "xc7vx690t": ("ffg1157-1", 1, "LVCMOS18", Series7),
         "xc7vx980t": ("ffg1926-1", 1, "LVCMOS18", Series7),
+
+        "xcku040": ("ffva1156-2-e", 1, "LVCMOS18", Ultrascale),
     }
 
     def __init__(self, device, pins, std, toolchain="ise"):
