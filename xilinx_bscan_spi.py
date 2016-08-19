@@ -22,7 +22,7 @@ from migen.build import xilinx
 This migen script produces proxy bitstreams to allow programming SPI flashes
 behind FPGAs.
 
-Bitstream binaries build with this script are available at:
+Bitstream binaries built with this script are available at:
 https://github.com/jordens/bscan_spi_bitstreams
 
 JTAG signalling is connected directly to SPI signalling. CS_N is
