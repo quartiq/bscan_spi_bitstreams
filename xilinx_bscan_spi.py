@@ -201,16 +201,17 @@ class XilinxBscanSpi(xilinx.XilinxPlatform):
 
     def __init__(self, device, pins, std, toolchain="ise"):
         cs_n, clk, mosi, miso = pins[:4]
+        pu = "PULLUP" if toolchain == "ise" else "PULLUP TRUE"
         io = ["spiflash", 0,
               Subsignal("cs_n", Pins(cs_n)),
               Subsignal("mosi", Pins(mosi)),
-              Subsignal("miso", Pins(miso), Misc("PULLUP")),
+              Subsignal("miso", Pins(miso), Misc(pu)),
               IOStandard(std),
               ]
         if clk:
             io.append(Subsignal("clk", Pins(clk)))
         for i, p in enumerate(pins[4:]):
-            io.append(Subsignal("pullup{}".format(i), Pins(p), Misc("PULLUP")))
+            io.append(Subsignal("pullup{}".format(i), Pins(p), Misc(pu)))
         xilinx.XilinxPlatform.__init__(self, device, [io], toolchain=toolchain)
 
     @classmethod
