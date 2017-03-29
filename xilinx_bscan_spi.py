@@ -47,7 +47,7 @@ class Spartan3(Module):
         sel1 = Signal()
         self.comb += [
             self.cd_jtag.clk.eq(spi.clk),
-            spi.cs_n.eq(~shift | ~sel1),
+            spi.cs_n.eq(~(shift & sel1)),
         ]
         self.sync.jtag += tdo.eq(spi.miso)
         self.specials += Instance(self.macro,
@@ -70,7 +70,10 @@ class Spartan6(Module):
         shift = Signal()
         tdo = Signal()
         sel = Signal()
-        self.comb += self.cd_jtag.clk.eq(spi.clk), spi.cs_n.eq(~shift | ~sel)
+        self.comb += [
+            self.cd_jtag.clk.eq(spi.clk),
+            spi.cs_n.eq(~(shift & sel)),
+        ]
         self.sync.jtag += tdo.eq(spi.miso)
         self.specials += Instance("BSCAN_SPARTAN6", p_JTAG_CHAIN=1,
                                   o_TCK=spi.clk, o_SHIFT=shift, o_SEL=sel,
@@ -91,7 +94,10 @@ class Series7(Module):
         shift = Signal()
         tdo = Signal()
         sel = Signal()
-        self.comb += self.cd_jtag.clk.eq(clk), spi.cs_n.eq(~shift | ~sel)
+        self.comb += [
+            self.cd_jtag.clk.eq(clk),
+            spi.cs_n.eq(~(shift & sel)),
+        ]
         self.sync.jtag += tdo.eq(spi.miso)
         self.specials += Instance("BSCANE2", p_JTAG_CHAIN=1,
                                   o_SHIFT=shift, o_TCK=clk, o_SEL=sel,
