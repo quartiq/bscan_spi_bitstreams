@@ -111,6 +111,37 @@ class Series7(mg.Module):
             i_USRCCLKTS=0, i_USRDONEO=1, i_USRDONETS=1)
 
 
+class Artix7(mg.Module):
+    toolchain = "vivado"
+
+    def __init__(self, platform):
+        platform.toolchain.bitstream_commands.extend([
+            "set_property BITSTREAM.GENERAL.COMPRESS True [current_design]",
+            "set_property BITSTREAM.CONFIG.UNUSEDPIN Pullnone [current_design]"
+        ])
+        self.clock_domains.cd_jtag = mg.ClockDomain(reset_less=True)
+        spi = platform.request("spiflash")
+        clk = mg.Signal()
+        shift = mg.Signal()
+        tdo = mg.Signal()
+        sel = mg.Signal()
+        self.comb += [
+            self.cd_jtag.clk.eq(clk),
+        ]
+        self.sync.jtag += [
+            tdo.eq(spi.miso),
+            spi.cs_n.eq(~(shift & sel)),
+        ]
+        self.specials += mg.Instance(
+            "BSCANE2", p_JTAG_CHAIN=1,
+            o_SHIFT=shift, o_TCK=clk, o_SEL=sel,
+            o_TDI=spi.mosi, i_TDO=tdo)
+        self.specials += mg.Instance(
+            "STARTUPE2", i_CLK=0, i_GSR=0, i_GTS=0,
+            i_KEYCLEARB=0, i_PACK=1, i_USRCCLKO=clk,
+            i_USRCCLKTS=0, i_USRDONEO=1, i_USRDONETS=1)
+
+
 class XilinxBscanSpi(xilinx.XilinxPlatform):
     packages = {
         # (package-speedgrade, id): [cs_n, clk, mosi, miso, *pullups]
@@ -186,7 +217,7 @@ class XilinxBscanSpi(xilinx.XilinxPlatform):
         "xc7a100t": ("csg324-1", 1, "LVCMOS25", Series7),
         "xc7a15t": ("cpg236-1", 1, "LVCMOS25", Series7),
         "xc7a200t": ("fbg484-1", 1, "LVCMOS25", Series7),
-        "xc7a35t": ("cpg236-1", 1, "LVCMOS25", Series7),
+        "xc7a35t": ("cpg236-1", 1, "LVCMOS25", Artix7),
         "xc7a50t": ("cpg236-1", 1, "LVCMOS25", Series7),
         "xc7a75t": ("csg324-1", 1, "LVCMOS25", Series7),
         "xc7k160t": ("fbg484-1", 2, "LVCMOS25", Series7),
