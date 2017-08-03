@@ -111,7 +111,7 @@ class Series7(mg.Module):
             i_USRCCLKTS=0, i_USRDONEO=1, i_USRDONETS=1)
 
 
-class Ultrascale(Module):
+class Ultrascale(mg.Module):
     toolchain = "vivado"
 
     def __init__(self, platform):
@@ -119,36 +119,31 @@ class Ultrascale(Module):
             "set_property BITSTREAM.GENERAL.COMPRESS True [current_design]",
             "set_property BITSTREAM.CONFIG.UNUSEDPIN Pullnone [current_design]",
         ])
-        self.clock_domains.cd_jtag = ClockDomain(reset_less=True)
-        spi = platform.request("spiflash")
-        clk = Signal()
-        shift = Signal()
-        tdo = Signal()
-        sel = Signal()
-        shift1 = Signal()
-        sel1 = Signal()
-        do = Signal(4)
-        tdo1 = Signal()
-        di = Signal(4)
+        self.clock_domains.cd_jtag = mg.ClockDomain(reset_less=True)
+        spi1 = platform.request("spiflash")
+        clk = mg.Signal(2)
+        shift = mg.Signal(2)
+        tdo = mg.Signal(2)
+        sel = mg.Signal(2)
+        do = mg.Signal(4)
+        di = mg.Signal(4)
         self.comb += [
-            self.cd_jtag.clk.eq(clk),
-            spi.cs_n.eq(~(shift & sel)),
+            self.cd_jtag.clk.eq(clk[0]),
+            spi1.cs_n.eq(~(shift[1] & sel[1])),
         ]
-        self.sync.jtag += [
-            tdo.eq(spi.miso),
-            tdo1.eq(di[1]),
-        ]
-        self.specials += Instance("BSCANE2", p_JTAG_CHAIN=2,
-                                  o_SHIFT=shift, o_SEL=sel,
-                                  o_TDI=spi.mosi, i_TDO=tdo)
-        self.specials += Instance("BSCANE2", p_JTAG_CHAIN=1,
-                                  o_SHIFT=shift1, o_TCK=clk, o_SEL=sel1,
-                                  o_TDI=do[0], i_TDO=tdo1)
-        self.specials += Instance("STARTUPE3", i_GSR=0, i_GTS=0,
-                                  i_KEYCLEARB=0, i_PACK=1, i_USRCCLKO=clk,
-                                  i_USRCCLKTS=0, i_USRDONEO=1, i_USRDONETS=1,
-                                  i_FCSBO=~(shift1 & sel1), i_FCSBTS=0,
-                                  o_DI=di, i_DO=do, i_DTS=0b0010),
+        self.sync.jtag += tdo.eq(mg.Cat(di[1], spi1.miso))
+        self.specials += mg.Instance("BSCANE2", p_JTAG_CHAIN=1,
+                                  o_SHIFT=shift[0], o_TCK=clk[0], o_SEL=sel[0],
+                                  o_TDI=do[0], i_TDO=tdo[0])
+        self.specials += mg.Instance("BSCANE2", p_JTAG_CHAIN=2,
+                                  o_SHIFT=shift[1], o_TCK=clk[1], o_SEL=sel[1],
+                                  o_TDI=spi1.mosi, i_TDO=tdo[1])
+        self.specials += mg.Instance("STARTUPE3", i_GSR=0, i_GTS=0,
+                                  i_KEYCLEARB=0, i_PACK=1,
+                                  i_USRDONEO=1, i_USRDONETS=1,
+                                  i_USRCCLKO=clk[0], i_USRCCLKTS=0,
+                                  i_FCSBO=~(shift[0] & sel[0]), i_FCSBTS=0,
+                                  o_DI=di, i_DO=do, i_DTS=0b1110),
 
 
 class XilinxBscanSpi(xilinx.XilinxPlatform):
@@ -254,20 +249,25 @@ class XilinxBscanSpi(xilinx.XilinxPlatform):
     }
 
     def __init__(self, device, pins, std, toolchain="ise"):
-        cs_n, clk, mosi, miso = pins[:4]
+        ios = [self.make_spi(0, pins, std, toolchain)]
+        xilinx.XilinxPlatform.__init__(self, device, ios, toolchain=toolchain)
+
+    @staticmethod
+    def make_spi(i, pins, std, toolchain):
         pu = "PULLUP" if toolchain == "ise" else "PULLUP TRUE"
-        io = ["spiflash", 0,
-              mb.Subsignal("cs_n", mb.Pins(cs_n)),
-              mb.Subsignal("mosi", mb.Pins(mosi)),
-              mb.Subsignal("miso", mb.Pins(miso), mb.Misc(pu)),
-              mb.IOStandard(std),
-              ]
+        cs_n, clk, mosi, miso = pins[:4]
+        io = ["spiflash", i,
+            mb.Subsignal("cs_n", mb.Pins(cs_n)),
+            mb.Subsignal("mosi", mb.Pins(mosi)),
+            mb.Subsignal("miso", mb.Pins(miso), mb.Misc(pu)),
+            mb.IOStandard(std),
+            ]
         if clk:
             io.append(mb.Subsignal("clk", mb.Pins(clk)))
         for i, p in enumerate(pins[4:]):
             io.append(mb.Subsignal("pullup{}".format(i), mb.Pins(p),
-                                   mb.Misc(pu)))
-        xilinx.XilinxPlatform.__init__(self, device, [io], toolchain=toolchain)
+                                mb.Misc(pu)))
+        return io
 
     @classmethod
     def make(cls, device, errors=False):
