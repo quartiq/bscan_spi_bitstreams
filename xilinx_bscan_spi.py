@@ -27,11 +27,48 @@ https://github.com/jordens/bscan_spi_bitstreams
 
 JTAG signalling is connected directly to SPI signalling. CS_N is
 asserted when the JTAG IR contains the USER1 instruction and the state is
-SHIFT-DR. Xilinx bscan cells sample TDO on falling TCK and forward it.
-MISO requires sampling on rising CLK and leads to one cycle of latency.
+SHIFT-DR and there has been one high bit on TDI.
 
 https://github.com/m-labs/migen
 """
+
+
+class JTAG2SPI(mg.Module):
+    def __init__(self):
+        self.jtag = mg.Record([
+            ("en", 1),
+            ("clk", 1),
+            ("tdi", 1),
+            ("tdo", 1),
+        ])
+        self.spi = mg.Record([
+            ("cs_n", 1),
+            ("clk", 1),
+            ("mosi", 1),
+            ("miso", 1),
+        ])
+
+        # # #
+
+        self.spi.cs_n.reset = mg.C(1)
+        self.clock_domains.cd_rise = mg.ClockDomain(reset_less=True)
+        self.clock_domains.cd_fall = mg.ClockDomain()
+        self.comb += [
+                self.cd_fall.clk.eq(~self.jtag.clk),
+                self.cd_fall.rst.eq(~self.jtag.en),
+                self.cd_rise.clk.eq(self.jtag.clk),
+                self.spi.clk.eq(self.jtag.clk),
+                self.spi.mosi.eq(self.jtag.tdi),
+        ]
+        # Some (Xilinx) bscan cells sample TDO on falling TCK and forward it.
+        # MISO requires sampling on rising CLK and leads to one cycle of
+        # latency.
+        self.sync.rise += self.jtag.tdo.eq(self.spi.miso)
+        # If there are more than one tap on the JTAG chain, we need to drop
+        # the inital bits. Select the flash with the first high bit and
+        # deselect with ~jtag.en. This assumes that additional bits after a
+        # transfer are ignored.
+        self.sync.fall += mg.If(self.jtag.tdi, self.spi.cs_n.eq(0))
 
 
 class Spartan3(mg.Module):
@@ -40,21 +77,25 @@ class Spartan3(mg.Module):
 
     def __init__(self, platform):
         platform.toolchain.bitgen_opt += " -g compress -g UnusedPin:Pullup"
-        self.clock_domains.cd_jtag = mg.ClockDomain(reset_less=True)
         spi = platform.request("spiflash")
+        self.submodules.j2s = j2s = JTAG2SPI()
         shift = mg.Signal()
-        tdo = mg.Signal()
-        sel1 = mg.Signal()
+        sel = mg.Signal()
         self.comb += [
-            self.cd_jtag.clk.eq(spi.clk),
-            spi.cs_n.eq(~(shift & sel1)),
+                spi.cs_n.eq(j2s.spi.cs_n),
+                spi.clk.eq(j2s.spi.clk),
+                spi.mosi.eq(j2s.spi.mosi),
+                j2s.spi.miso.eq(spi.miso),
+                j2s.jtag.en.eq(sel & shift),
         ]
-        self.sync.jtag += tdo.eq(spi.miso)
-        self.specials += mg.Instance(
-                self.macro,
-                o_DRCK1=spi.clk, o_SHIFT=shift,
-                o_TDI=spi.mosi, i_TDO1=tdo, i_TDO2=0,
-                o_SEL1=sel1)
+        self.specials += [
+                mg.Instance(
+                    self.macro,
+                    o_SHIFT=shift, o_SEL1=sel,
+                    o_DRCK1=j2s.jtag.clk,
+                    o_TDI=j2s.jtag.tdi, i_TDO1=j2s.jtag.tdo,
+                    i_TDO2=0),
+        ]
 
 
 class Spartan3A(Spartan3):
@@ -66,20 +107,26 @@ class Spartan6(mg.Module):
 
     def __init__(self, platform):
         platform.toolchain.bitgen_opt += " -g compress -g UnusedPin:Pullup"
-        self.clock_domains.cd_jtag = mg.ClockDomain(reset_less=True)
         spi = platform.request("spiflash")
+        self.submodules.j2s = j2s = JTAG2SPI()
         shift = mg.Signal()
-        tdo = mg.Signal()
         sel = mg.Signal()
         self.comb += [
-            self.cd_jtag.clk.eq(spi.clk),
-            spi.cs_n.eq(~(shift & sel)),
+                spi.cs_n.eq(j2s.spi.cs_n),
+                spi.clk.eq(j2s.spi.clk),
+                spi.mosi.eq(j2s.spi.mosi),
+                j2s.spi.miso.eq(spi.miso),
+                j2s.jtag.en.eq(sel & shift),
         ]
-        self.sync.jtag += tdo.eq(spi.miso)
-        self.specials += mg.Instance(
-            "BSCAN_SPARTAN6", p_JTAG_CHAIN=1,
-            o_TCK=spi.clk, o_SHIFT=shift, o_SEL=sel,
-            o_TDI=spi.mosi, i_TDO=tdo)
+        self.specials += [
+                mg.Instance(
+                    "BSCAN_SPARTAN6", p_JTAG_CHAIN=1,
+                    o_SHIFT=shift, o_SEL=sel,
+                    o_TCK=j2s.jtag.clk,
+                    o_TDI=j2s.jtag.tdi, i_TDO=j2s.jtag.tdo),
+        ]
+
+
 
 
 class Series7(mg.Module):
@@ -90,25 +137,28 @@ class Series7(mg.Module):
             "set_property BITSTREAM.GENERAL.COMPRESS True [current_design]",
             "set_property BITSTREAM.CONFIG.UNUSEDPIN Pullnone [current_design]"
         ])
-        self.clock_domains.cd_jtag = mg.ClockDomain(reset_less=True)
         spi = platform.request("spiflash")
-        clk = mg.Signal()
+        self.submodules.j2s = j2s = JTAG2SPI()
         shift = mg.Signal()
-        tdo = mg.Signal()
         sel = mg.Signal()
         self.comb += [
-            self.cd_jtag.clk.eq(clk),
-            spi.cs_n.eq(~(shift & sel)),
+                spi.cs_n.eq(j2s.spi.cs_n),
+                # spi.clk.eq(j2s.spi.clk),
+                spi.mosi.eq(j2s.spi.mosi),
+                j2s.spi.miso.eq(spi.miso),
+                j2s.jtag.en.eq(sel & shift),
         ]
-        self.sync.jtag += tdo.eq(spi.miso)
-        self.specials += mg.Instance(
-            "BSCANE2", p_JTAG_CHAIN=1,
-            o_SHIFT=shift, o_TCK=clk, o_SEL=sel,
-            o_TDI=spi.mosi, i_TDO=tdo)
-        self.specials += mg.Instance(
-            "STARTUPE2", i_CLK=0, i_GSR=0, i_GTS=0,
-            i_KEYCLEARB=0, i_PACK=1, i_USRCCLKO=clk,
-            i_USRCCLKTS=0, i_USRDONEO=1, i_USRDONETS=1)
+        self.specials += [
+                mg.Instance(
+                    "BSCANE2", p_JTAG_CHAIN=1,
+                    o_SHIFT=shift, o_SEL=sel,
+                    o_TCK=j2s.jtag.clk,
+                    o_TDI=j2s.jtag.tdi, i_TDO=j2s.jtag.tdo),
+                mg.Instance(
+                    "STARTUPE2", i_CLK=0, i_GSR=0, i_GTS=0,
+                    i_KEYCLEARB=0, i_PACK=1, i_USRCCLKO=j2s.jtag.clk,
+                    i_USRCCLKTS=0, i_USRDONEO=1, i_USRDONETS=1)
+        ]
 
 
 class Ultrascale(mg.Module):
@@ -119,31 +169,40 @@ class Ultrascale(mg.Module):
             "set_property BITSTREAM.GENERAL.COMPRESS True [current_design]",
             "set_property BITSTREAM.CONFIG.UNUSEDPIN Pullnone [current_design]",
         ])
-        self.clock_domains.cd_jtag = mg.ClockDomain(reset_less=True)
         spi1 = platform.request("spiflash")
-        clk = mg.Signal(2)
+        self.submodules.j2s0 = j2s0 = JTAG2SPI()
+        self.submodules.j2s1 = j2s1 = JTAG2SPI()
         shift = mg.Signal(2)
-        tdo = mg.Signal(2)
         sel = mg.Signal(2)
         do = mg.Signal(4)
         di = mg.Signal(4)
         self.comb += [
-            self.cd_jtag.clk.eq(clk[0]),
-            spi1.cs_n.eq(~(shift[1] & sel[1])),
+                do[0].eq(j2s0.spi.mosi),
+                j2s0.spi.miso.eq(di[1]),
+                j2s0.jtag.en.eq(sel[0] & shift[0]),
+
+                spi1.cs_n.eq(j2s1.spi.cs_n),
+                # spi1.clk.eq(j2s1.spi.clk),
+                spi1.mosi.eq(j2s1.spi.mosi),
+                j2s1.spi.miso.eq(spi1.miso),
+                j2s1.jtag.en.eq(sel[1] & shift[1]),
         ]
-        self.sync.jtag += tdo.eq(mg.Cat(di[1], spi1.miso))
-        self.specials += mg.Instance("BSCANE2", p_JTAG_CHAIN=1,
-                                  o_SHIFT=shift[0], o_TCK=clk[0], o_SEL=sel[0],
-                                  o_TDI=do[0], i_TDO=tdo[0])
-        self.specials += mg.Instance("BSCANE2", p_JTAG_CHAIN=2,
-                                  o_SHIFT=shift[1], o_TCK=clk[1], o_SEL=sel[1],
-                                  o_TDI=spi1.mosi, i_TDO=tdo[1])
-        self.specials += mg.Instance("STARTUPE3", i_GSR=0, i_GTS=0,
-                                  i_KEYCLEARB=0, i_PACK=1,
-                                  i_USRDONEO=1, i_USRDONETS=1,
-                                  i_USRCCLKO=clk[0], i_USRCCLKTS=0,
-                                  i_FCSBO=~(shift[0] & sel[0]), i_FCSBTS=0,
-                                  o_DI=di, i_DO=do, i_DTS=0b1110),
+        self.specials += [
+                mg.Instance("BSCANE2", p_JTAG_CHAIN=1,
+                    o_SHIFT=shift[0], o_SEL=sel[0],
+                    o_TCK=j2s0.jtag.clk,
+                    o_TDI=j2s0.jtag.tdi, i_TDO=j2s0.jtag.tdo),
+                mg.Instance("BSCANE2", p_JTAG_CHAIN=2,
+                    o_SHIFT=shift[1], o_SEL=sel[1],
+                    o_TCK=j2s1.jtag.clk,
+                    o_TDI=j2s1.jtag.tdi, i_TDO=j2s1.jtag.tdo),
+                mg.Instance("STARTUPE3", i_GSR=0, i_GTS=0,
+                    i_KEYCLEARB=0, i_PACK=1,
+                    i_USRDONEO=1, i_USRDONETS=1,
+                    i_USRCCLKO=j2s0.spi.clk, i_USRCCLKTS=0,
+                    i_FCSBO=j2s0.spi.cs_n, i_FCSBTS=0,
+                    o_DI=di, i_DO=do, i_DTS=0b1110)
+        ]
 
 
 class XilinxBscanSpi(xilinx.XilinxPlatform):
