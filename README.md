@@ -10,3 +10,11 @@ and other boards.
 
 All bitstreams are generated with [xilinx_bscan_spi.py](xilinx_bscan_spi.py)
 as contained in this repository.
+
+## Versions
+
+**Note**: The bitstreams in master may require feature not yet available in master/released openocd. To use the master branch bitstreams, use
+[this](https://github.com/m-labs/openocd) openocd branch.
+
+**Note**: Bitstreams for *stable* or *master* openocd are in the [single-tap](https://github.com/jordens/bscan_spi_bitstreams/commits/single-tap)
+branch.
