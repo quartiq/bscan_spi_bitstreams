@@ -36,7 +36,8 @@ https://github.com/m-labs/migen
 class JTAG2SPI(mg.Module):
     def __init__(self, spi=None):
         self.jtag = mg.Record([
-            ("en", 1),
+            ("sel", 1),
+            ("shift", 1),
             ("clk", 1),
             ("tdi", 1),
             ("tdo", 1),
@@ -48,6 +49,7 @@ class JTAG2SPI(mg.Module):
 
         # # #
 
+        en = mg.Signal()
         self.cs_n.o.reset = mg.C(1)
         self.clock_domains.cd_rise = mg.ClockDomain(reset_less=True)
         self.clock_domains.cd_fall = mg.ClockDomain()
@@ -60,12 +62,13 @@ class JTAG2SPI(mg.Module):
             if hasattr(spi, "clk"):  # 7 Series drive it already
                 self.specials += self.clk.get_tristate(spi.clk)
         self.comb += [
+                en.eq(self.jtag.sel & self.jtag.shift),
                 self.cd_fall.clk.eq(~self.jtag.clk),
-                self.cd_fall.rst.eq(~self.jtag.en),
+                self.cd_fall.rst.eq(~en),
                 self.cd_rise.clk.eq(self.jtag.clk),
-                self.clk.oe.eq(self.jtag.en),
-                self.cs_n.oe.eq(self.jtag.en),
-                self.mosi.oe.eq(self.jtag.en),
+                self.clk.oe.eq(en),
+                self.cs_n.oe.eq(en),
+                self.mosi.oe.eq(en),
                 self.miso.oe.eq(0),
                 self.clk.o.eq(self.jtag.clk),
                 self.mosi.o.eq(self.jtag.tdi),
@@ -76,7 +79,7 @@ class JTAG2SPI(mg.Module):
         self.sync.rise += self.jtag.tdo.eq(self.miso.i)
         # If there are more than one tap on the JTAG chain, we need to drop
         # the inital bits. Select the flash with the first high bit and
-        # deselect with ~jtag.en. This assumes that additional bits after a
+        # deselect with ~en. This assumes that additional bits after a
         # transfer are ignored.
         self.sync.fall += mg.If(self.jtag.tdi, self.cs_n.o.eq(0))
 
@@ -88,13 +91,10 @@ class Spartan3(mg.Module):
     def __init__(self, platform):
         platform.toolchain.bitgen_opt += " -g compress -g UnusedPin:Pullup"
         self.submodules.j2s = j2s = JTAG2SPI(platform.request("spiflash"))
-        shift = mg.Signal()
-        sel = mg.Signal()
-        self.comb += j2s.jtag.en.eq(sel & shift)
         self.specials += [
                 mg.Instance(
                     self.macro,
-                    o_SHIFT=shift, o_SEL1=sel,
+                    o_SHIFT=j2s.jtag.shift, o_SEL1=j2s.jtag.sel,
                     o_DRCK1=j2s.jtag.clk,
                     o_TDI=j2s.jtag.tdi, i_TDO1=j2s.jtag.tdo,
                     i_TDO2=0),
@@ -111,13 +111,10 @@ class Spartan6(mg.Module):
     def __init__(self, platform):
         platform.toolchain.bitgen_opt += " -g compress -g UnusedPin:Pullup"
         self.submodules.j2s = j2s = JTAG2SPI(platform.request("spiflash"))
-        shift = mg.Signal()
-        sel = mg.Signal()
-        self.comb += j2s.jtag.en.eq(sel & shift)
         self.specials += [
                 mg.Instance(
                     "BSCAN_SPARTAN6", p_JTAG_CHAIN=1,
-                    o_SHIFT=shift, o_SEL=sel,
+                    o_SHIFT=j2s.jtag.shift, o_SEL=j2s.jtag.sel,
                     o_TCK=j2s.jtag.clk,
                     o_TDI=j2s.jtag.tdi, i_TDO=j2s.jtag.tdo),
         ]
@@ -134,15 +131,10 @@ class Series7(mg.Module):
             "set_property BITSTREAM.CONFIG.UNUSEDPIN Pullnone [current_design]"
         ])
         self.submodules.j2s = j2s = JTAG2SPI(platform.request("spiflash"))
-        shift = mg.Signal()
-        sel = mg.Signal()
-        self.comb += [
-                j2s.jtag.en.eq(sel & shift),
-        ]
         self.specials += [
                 mg.Instance(
                     "BSCANE2", p_JTAG_CHAIN=1,
-                    o_SHIFT=shift, o_SEL=sel,
+                    o_SHIFT=j2s.jtag.shift, o_SEL=j2s.jtag.sel,
                     o_TCK=j2s.jtag.clk,
                     o_TDI=j2s.jtag.tdi, i_TDO=j2s.jtag.tdo),
                 mg.Instance(
@@ -162,16 +154,13 @@ class Ultrascale(mg.Module):
         ])
         self.submodules.j2s0 = j2s0 = JTAG2SPI()
         self.submodules.j2s1 = j2s1 = JTAG2SPI(platform.request("spiflash"))
-        shift = mg.Signal(2)
-        sel = mg.Signal(2)
-        self.comb += mg.Cat(j2s0.jtag.en, j2s1.jtag.en).eq(sel & shift),
         self.specials += [
                 mg.Instance("BSCANE2", p_JTAG_CHAIN=1,
-                    o_SHIFT=shift[0], o_SEL=sel[0],
+                    o_SHIFT=j2s0.jtag.shift, o_SEL=j2s0.jtag.sel,
                     o_TCK=j2s0.jtag.clk,
                     o_TDI=j2s0.jtag.tdi, i_TDO=j2s0.jtag.tdo),
                 mg.Instance("BSCANE2", p_JTAG_CHAIN=2,
-                    o_SHIFT=shift[1], o_SEL=sel[1],
+                    o_SHIFT=j2s1.jtag.shift, o_SEL=j2s1.jtag.sel,
                     o_TCK=j2s1.jtag.clk,
                     o_TDI=j2s1.jtag.tdi, i_TDO=j2s1.jtag.tdo),
                 mg.Instance("STARTUPE3", i_GSR=0, i_GTS=0,
