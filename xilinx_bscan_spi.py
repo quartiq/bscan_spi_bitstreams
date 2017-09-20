@@ -34,41 +34,51 @@ https://github.com/m-labs/migen
 
 
 class JTAG2SPI(mg.Module):
-    def __init__(self):
+    def __init__(self, spi=None):
         self.jtag = mg.Record([
             ("en", 1),
             ("clk", 1),
             ("tdi", 1),
             ("tdo", 1),
         ])
-        self.spi = mg.Record([
-            ("cs_n", 1),
-            ("clk", 1),
-            ("mosi", 1),
-            ("miso", 1),
-        ])
+        self.cs_n = mg.TSTriple()
+        self.clk = mg.TSTriple()
+        self.mosi = mg.TSTriple()
+        self.miso = mg.TSTriple()
 
         # # #
 
-        self.spi.cs_n.reset = mg.C(1)
+        self.cs_n.o.reset = mg.C(1)
         self.clock_domains.cd_rise = mg.ClockDomain(reset_less=True)
         self.clock_domains.cd_fall = mg.ClockDomain()
+        if spi is not None:
+            self.specials += [
+                    self.cs_n.get_tristate(spi.cs_n),
+                    self.mosi.get_tristate(spi.mosi),
+                    self.miso.get_tristate(spi.miso),
+            ]
+            if hasattr(spi, "clk"):  # 7 Series drive it already
+                self.specials += self.clk.get_tristate(spi.clk)
         self.comb += [
                 self.cd_fall.clk.eq(~self.jtag.clk),
                 self.cd_fall.rst.eq(~self.jtag.en),
                 self.cd_rise.clk.eq(self.jtag.clk),
-                self.spi.clk.eq(self.jtag.clk),
-                self.spi.mosi.eq(self.jtag.tdi),
+                self.clk.oe.eq(self.jtag.en),
+                self.cs_n.oe.eq(self.jtag.en),
+                self.mosi.oe.eq(self.jtag.en),
+                self.miso.oe.eq(0),
+                self.clk.o.eq(self.jtag.clk),
+                self.mosi.o.eq(self.jtag.tdi),
         ]
         # Some (Xilinx) bscan cells sample TDO on falling TCK and forward it.
         # MISO requires sampling on rising CLK and leads to one cycle of
         # latency.
-        self.sync.rise += self.jtag.tdo.eq(self.spi.miso)
+        self.sync.rise += self.jtag.tdo.eq(self.miso.i)
         # If there are more than one tap on the JTAG chain, we need to drop
         # the inital bits. Select the flash with the first high bit and
         # deselect with ~jtag.en. This assumes that additional bits after a
         # transfer are ignored.
-        self.sync.fall += mg.If(self.jtag.tdi, self.spi.cs_n.eq(0))
+        self.sync.fall += mg.If(self.jtag.tdi, self.cs_n.o.eq(0))
 
 
 class Spartan3(mg.Module):
@@ -77,17 +87,10 @@ class Spartan3(mg.Module):
 
     def __init__(self, platform):
         platform.toolchain.bitgen_opt += " -g compress -g UnusedPin:Pullup"
-        spi = platform.request("spiflash")
-        self.submodules.j2s = j2s = JTAG2SPI()
+        self.submodules.j2s = j2s = JTAG2SPI(platform.request("spiflash"))
         shift = mg.Signal()
         sel = mg.Signal()
-        self.comb += [
-                spi.cs_n.eq(j2s.spi.cs_n),
-                spi.clk.eq(j2s.spi.clk),
-                spi.mosi.eq(j2s.spi.mosi),
-                j2s.spi.miso.eq(spi.miso),
-                j2s.jtag.en.eq(sel & shift),
-        ]
+        self.comb += j2s.jtag.en.eq(sel & shift)
         self.specials += [
                 mg.Instance(
                     self.macro,
@@ -107,17 +110,10 @@ class Spartan6(mg.Module):
 
     def __init__(self, platform):
         platform.toolchain.bitgen_opt += " -g compress -g UnusedPin:Pullup"
-        spi = platform.request("spiflash")
-        self.submodules.j2s = j2s = JTAG2SPI()
+        self.submodules.j2s = j2s = JTAG2SPI(platform.request("spiflash"))
         shift = mg.Signal()
         sel = mg.Signal()
-        self.comb += [
-                spi.cs_n.eq(j2s.spi.cs_n),
-                spi.clk.eq(j2s.spi.clk),
-                spi.mosi.eq(j2s.spi.mosi),
-                j2s.spi.miso.eq(spi.miso),
-                j2s.jtag.en.eq(sel & shift),
-        ]
+        self.comb += j2s.jtag.en.eq(sel & shift)
         self.specials += [
                 mg.Instance(
                     "BSCAN_SPARTAN6", p_JTAG_CHAIN=1,
@@ -137,15 +133,10 @@ class Series7(mg.Module):
             "set_property BITSTREAM.GENERAL.COMPRESS True [current_design]",
             "set_property BITSTREAM.CONFIG.UNUSEDPIN Pullnone [current_design]"
         ])
-        spi = platform.request("spiflash")
-        self.submodules.j2s = j2s = JTAG2SPI()
+        self.submodules.j2s = j2s = JTAG2SPI(platform.request("spiflash"))
         shift = mg.Signal()
         sel = mg.Signal()
         self.comb += [
-                spi.cs_n.eq(j2s.spi.cs_n),
-                # spi.clk.eq(j2s.spi.clk),
-                spi.mosi.eq(j2s.spi.mosi),
-                j2s.spi.miso.eq(spi.miso),
                 j2s.jtag.en.eq(sel & shift),
         ]
         self.specials += [
@@ -169,24 +160,11 @@ class Ultrascale(mg.Module):
             "set_property BITSTREAM.GENERAL.COMPRESS True [current_design]",
             "set_property BITSTREAM.CONFIG.UNUSEDPIN Pullnone [current_design]",
         ])
-        spi1 = platform.request("spiflash")
         self.submodules.j2s0 = j2s0 = JTAG2SPI()
-        self.submodules.j2s1 = j2s1 = JTAG2SPI()
+        self.submodules.j2s1 = j2s1 = JTAG2SPI(platform.request("spiflash"))
         shift = mg.Signal(2)
         sel = mg.Signal(2)
-        do = mg.Signal(4)
-        di = mg.Signal(4)
-        self.comb += [
-                do[0].eq(j2s0.spi.mosi),
-                j2s0.spi.miso.eq(di[1]),
-                j2s0.jtag.en.eq(sel[0] & shift[0]),
-
-                spi1.cs_n.eq(j2s1.spi.cs_n),
-                # spi1.clk.eq(j2s1.spi.clk),
-                spi1.mosi.eq(j2s1.spi.mosi),
-                j2s1.spi.miso.eq(spi1.miso),
-                j2s1.jtag.en.eq(sel[1] & shift[1]),
-        ]
+        self.comb += mg.Cat(j2s0.jtag.en, j2s1.jtag.en).eq(sel & shift),
         self.specials += [
                 mg.Instance("BSCANE2", p_JTAG_CHAIN=1,
                     o_SHIFT=shift[0], o_SEL=sel[0],
@@ -199,9 +177,11 @@ class Ultrascale(mg.Module):
                 mg.Instance("STARTUPE3", i_GSR=0, i_GTS=0,
                     i_KEYCLEARB=0, i_PACK=1,
                     i_USRDONEO=1, i_USRDONETS=1,
-                    i_USRCCLKO=j2s0.spi.clk, i_USRCCLKTS=0,
-                    i_FCSBO=j2s0.spi.cs_n, i_FCSBTS=0,
-                    o_DI=di, i_DO=do, i_DTS=0b1110)
+                    i_USRCCLKO=j2s0.clk.o, i_USRCCLKTS=~j2s0.clk.oe,
+                    i_FCSBO=j2s0.cs_n.o, i_FCSBTS=~j2s0.cs_n.oe,
+                    o_DI=mg.Cat(0, j2s0.miso.i, 0, 0),
+                    i_DO=mg.Cat(j2s0.mosi.o, 0, 0, 0),
+                    i_DTS=mg.Cat(~j2s0.mosi.oe, ~j2s0.miso.oe, 1, 1))
         ]
 
 
