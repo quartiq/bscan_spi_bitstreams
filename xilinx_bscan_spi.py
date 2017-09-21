@@ -13,6 +13,8 @@
 #  GNU General Public License for more details.
 #
 
+import unittest
+
 import migen as mg
 import migen.build.generic_platform as mb
 from migen.build import xilinx
@@ -25,19 +27,34 @@ behind FPGAs.
 Bitstream binaries built with this script are available at:
 https://github.com/jordens/bscan_spi_bitstreams
 
-JTAG signalling is connected directly to SPI signalling. CS_N is
-asserted when the JTAG IR contains the USER1 instruction and the state is
-SHIFT-DR and there has been one high bit on TDI.
+A JTAG2SPI transfer consists of:
+
+1. an arbitrary number of 0 bits (from BYPASS registers in front of the
+   JTAG2SPI DR)
+2. a marker bit (1) indicating the start of the JTAG2SPI transaction
+3. 32 bits (big endian) describing the length of the SPI transaction
+4. a number of SPI clock cycles (corresponding to 3.) with CS_N asserted
+5. an arbitrary number of cycles (to shift MISO/TDO data through subsequent
+   BYPASS registers)
+
+Notes:
+
+* The JTAG2SPI DR is 1 bit long (due to different sampling edges of MISO/TDO).
+* MOSI is directly taken from TDI.
+* TDO is MISO with the afforementioned single bit delay.
+* CAPTURE-DR needs to be performed before SHIFT-DR on the BYPASSed TAPs in
+  JTAG chain to clear the BYPASS registers to 0.
 
 https://github.com/m-labs/migen
 """
 
 
 class JTAG2SPI(mg.Module):
-    def __init__(self, spi=None):
+    def __init__(self, spi=None, bits=32):
         self.jtag = mg.Record([
             ("sel", 1),
             ("shift", 1),
+            ("capture", 1),
             ("clk", 1),
             ("tdi", 1),
             ("tdo", 1),
@@ -49,39 +66,127 @@ class JTAG2SPI(mg.Module):
 
         # # #
 
+        self.cs_n.o.reset = mg.Constant(1)
+        self.submodules.fsm = fsm = mg.FSM("IDLE")
         en = mg.Signal()
-        self.cs_n.o.reset = mg.C(1)
+        bits = mg.Signal(bits, reset_less=True)
+        head = mg.Signal(max=len(bits), reset=len(bits) - 1)
+        self.clock_domains.cd_sys = mg.ClockDomain()
         self.clock_domains.cd_rise = mg.ClockDomain(reset_less=True)
-        self.clock_domains.cd_fall = mg.ClockDomain()
         if spi is not None:
             self.specials += [
                     self.cs_n.get_tristate(spi.cs_n),
                     self.mosi.get_tristate(spi.mosi),
                     self.miso.get_tristate(spi.miso),
             ]
-            if hasattr(spi, "clk"):  # 7 Series drive it already
+            if hasattr(spi, "clk"):  # 7 Series drive it fixed
                 self.specials += self.clk.get_tristate(spi.clk)
         self.comb += [
                 en.eq(self.jtag.sel & self.jtag.shift),
-                self.cd_fall.clk.eq(~self.jtag.clk),
-                self.cd_fall.rst.eq(~en),
+                self.cd_sys.rst.eq(self.jtag.capture),
+                self.cd_sys.clk.eq(~self.jtag.clk),
                 self.cd_rise.clk.eq(self.jtag.clk),
-                self.clk.oe.eq(en),
                 self.cs_n.oe.eq(en),
+                self.clk.oe.eq(en),
                 self.mosi.oe.eq(en),
                 self.miso.oe.eq(0),
-                self.clk.o.eq(self.jtag.clk),
+                self.clk.o.eq(self.jtag.clk & ~self.cs_n.o),
                 self.mosi.o.eq(self.jtag.tdi),
         ]
-        # Some (Xilinx) bscan cells sample TDO on falling TCK and forward it.
-        # MISO requires sampling on rising CLK and leads to one cycle of
+        # Some (Xilinx) bscan cells register TDO (from the fabric) on falling
+        # TCK and output it (externally).
+        # SPI requires sampling on rising CLK. This leads to one cycle of
         # latency.
         self.sync.rise += self.jtag.tdo.eq(self.miso.i)
-        # If there are more than one tap on the JTAG chain, we need to drop
-        # the inital bits. Select the flash with the first high bit and
-        # deselect with ~en. This assumes that additional bits after a
-        # transfer are ignored.
-        self.sync.fall += mg.If(self.jtag.tdi, self.cs_n.o.eq(0))
+        fsm.act("IDLE",
+                mg.If(self.jtag.tdi,
+                    mg.NextState("HEAD")
+                )
+        )
+        fsm.act("HEAD",
+                mg.If(head == 0,
+                    mg.NextState("XFER")
+                )
+        )
+        fsm.act("XFER",
+                mg.If(bits == 0,
+                    mg.NextState("IDLE")
+                ),
+                self.cs_n.o.eq(0),
+        )
+        self.sync += [
+                mg.If(fsm.ongoing("HEAD"),
+                    bits.eq(mg.Cat(self.jtag.tdi, bits)),
+                    head.eq(head - 1)
+                ),
+                mg.If(fsm.ongoing("XFER"),
+                    bits.eq(bits - 1)
+                )
+        ]
+
+
+class JTAG2SPITest(unittest.TestCase):
+    def setUp(self):
+        self.bits = 8
+        self.dut = JTAG2SPI(bits=self.bits)
+
+    def test_instantiate(self):
+        pass
+
+    def test_initial_conditions(self):
+        def check():
+            yield
+            self.assertEqual((yield self.dut.cs_n.oe), 0)
+            self.assertEqual((yield self.dut.mosi.oe), 0)
+            self.assertEqual((yield self.dut.miso.oe), 0)
+            self.assertEqual((yield self.dut.clk.oe), 0)
+        mg.run_simulation(self.dut, check())
+
+    def test_enable(self):
+        def check():
+            yield self.dut.jtag.sel.eq(1)
+            yield self.dut.jtag.shift.eq(1)
+            yield
+            self.assertEqual((yield self.dut.cs_n.oe), 1)
+            self.assertEqual((yield self.dut.mosi.oe), 1)
+            self.assertEqual((yield self.dut.miso.oe), 0)
+            self.assertEqual((yield self.dut.clk.oe), 1)
+        mg.run_simulation(self.dut, check())
+
+    def run_seq(self, tdi, tdo, spi=None):
+        yield self.dut.jtag.sel.eq(1)
+        yield
+        yield self.dut.jtag.shift.eq(1)
+        for di in tdi:
+            yield self.dut.jtag.tdi.eq(di)
+            yield
+            tdo.append((yield self.dut.jtag.tdo))
+            if spi is not None:
+                v = []
+                for k in "cs_n clk mosi miso".split():
+                    t = getattr(self.dut, k)
+                    v.append("{}>".format((yield t.o)) if (yield t.oe)
+                            else "<{}".format((yield t.i)))
+                spi.append(" ".join(v))
+        yield self.dut.jtag.sel.eq(0)
+        yield
+        yield self.dut.jtag.shift.eq(0)
+        yield
+
+    def test_shift(self):
+        bits = 8
+        data = 0x81
+        tdi = [0, 0, 1]  # dummy from BYPASS TAPs and marker
+        tdi += [((bits - 1) >> j) & 1 for j in range(self.bits - 1, -1, -1)]
+        tdi += [(data >> j) & 1 for j in range(bits)]
+        tdi += [0, 0, 0, 0]  # dummy from BYPASS TAPs
+        tdo = []
+        spi = []
+        mg.run_simulation(self.dut, self.run_seq(tdi, tdo, spi),
+                clocks={"jtag": 10, "sys": 10})
+        # print(tdo)
+        for l in spi:
+            print(l)
 
 
 class Spartan3(mg.Module):
@@ -95,6 +200,7 @@ class Spartan3(mg.Module):
                 mg.Instance(
                     self.macro,
                     o_SHIFT=j2s.jtag.shift, o_SEL1=j2s.jtag.sel,
+                    o_CAPTURE=j2s.jtag.capture,
                     o_DRCK1=j2s.jtag.clk,
                     o_TDI=j2s.jtag.tdi, i_TDO1=j2s.jtag.tdo,
                     i_TDO2=0),
@@ -115,6 +221,7 @@ class Spartan6(mg.Module):
                 mg.Instance(
                     "BSCAN_SPARTAN6", p_JTAG_CHAIN=1,
                     o_SHIFT=j2s.jtag.shift, o_SEL=j2s.jtag.sel,
+                    o_CAPTURE=j2s.jtag.capture,
                     o_TCK=j2s.jtag.clk,
                     o_TDI=j2s.jtag.tdi, i_TDO=j2s.jtag.tdo),
         ]
@@ -135,6 +242,7 @@ class Series7(mg.Module):
                 mg.Instance(
                     "BSCANE2", p_JTAG_CHAIN=1,
                     o_SHIFT=j2s.jtag.shift, o_SEL=j2s.jtag.sel,
+                    o_CAPTURE=j2s.jtag.capture,
                     o_TCK=j2s.jtag.clk,
                     o_TDI=j2s.jtag.tdi, i_TDO=j2s.jtag.tdo),
                 mg.Instance(
@@ -157,10 +265,12 @@ class Ultrascale(mg.Module):
         self.specials += [
                 mg.Instance("BSCANE2", p_JTAG_CHAIN=1,
                     o_SHIFT=j2s0.jtag.shift, o_SEL=j2s0.jtag.sel,
+                    o_CAPTURE=j2s0.jtag.capture,
                     o_TCK=j2s0.jtag.clk,
                     o_TDI=j2s0.jtag.tdi, i_TDO=j2s0.jtag.tdo),
                 mg.Instance("BSCANE2", p_JTAG_CHAIN=2,
                     o_SHIFT=j2s1.jtag.shift, o_SEL=j2s1.jtag.sel,
+                    o_CAPTURE=j2s1.jtag.capture,
                     o_TCK=j2s1.jtag.clk,
                     o_TDI=j2s1.jtag.tdi, i_TDO=j2s1.jtag.tdo),
                 mg.Instance("STARTUPE3", i_GSR=0, i_GTS=0,
@@ -306,9 +416,8 @@ class XilinxBscanSpi(xilinx.XilinxPlatform):
         platform = cls("{}-{}".format(device, pkg), pins, std, Top.toolchain)
         top = Top(platform)
         name = "bscan_spi_{}".format(device)
-        dir = "build_{}".format(device)
         try:
-            platform.build(top, build_name=name, build_dir=dir)
+            platform.build(top, build_name=name)
         except Exception as e:
             print(("ERROR: xilinx_bscan_spi build failed "
                   "for {}: {}").format(device, e))
