@@ -83,7 +83,7 @@ class JTAG2SPI(mg.Module):
                 self.specials += self.clk.get_tristate(spi.clk)
         self.comb += [
                 en.eq(self.jtag.sel & self.jtag.shift),
-                self.cd_sys.rst.eq(self.jtag.capture),
+                self.cd_sys.rst.eq(self.jtag.sel & self.jtag.capture),
                 self.cd_sys.clk.eq(~self.jtag.clk),
                 self.cd_rise.clk.eq(self.jtag.clk),
                 self.cs_n.oe.eq(en),
@@ -278,8 +278,8 @@ class Ultrascale(mg.Module):
                     i_USRDONEO=1, i_USRDONETS=1,
                     i_USRCCLKO=j2s0.clk.o, i_USRCCLKTS=~j2s0.clk.oe,
                     i_FCSBO=j2s0.cs_n.o, i_FCSBTS=~j2s0.cs_n.oe,
-                    o_DI=mg.Cat(0, j2s0.miso.i, 0, 0),
-                    i_DO=mg.Cat(j2s0.mosi.o, 0, 0, 0),
+                    o_DI=mg.Cat(j2s0.mosi.i, j2s0.miso.i, 0, 0),
+                    i_DO=mg.Cat(j2s0.mosi.o, j2s0.miso.o, 0, 0),
                     i_DTS=mg.Cat(~j2s0.mosi.oe, ~j2s0.miso.oe, 1, 1))
         ]
 
@@ -385,7 +385,7 @@ class XilinxBscanSpi(xilinx.XilinxPlatform):
         "xc7vx980t": ("ffg1926-1", 1, "LVCMOS18", Series7),
 
         "xcku040": ("ffva1156-2-e", 1, "LVCMOS18", Ultrascale),
-        # "xcku040": ("ffva1156-2-e", "sayma", "LVCMOS18", Ultrascale),
+        "xcku040-sayma": ("ffva1156-2-e", "sayma", "LVCMOS18", Ultrascale),
     }
 
     def __init__(self, device, pins, std, toolchain="ise"):
@@ -410,17 +410,18 @@ class XilinxBscanSpi(xilinx.XilinxPlatform):
         return io
 
     @classmethod
-    def make(cls, device, errors=False):
-        pkg, id, std, Top = cls.pinouts[device]
+    def make(cls, target, errors=False):
+        pkg, id, std, Top = cls.pinouts[target]
         pins = cls.packages[(pkg, id)]
+        device = target.split("-", 1)[0]
         platform = cls("{}-{}".format(device, pkg), pins, std, Top.toolchain)
         top = Top(platform)
-        name = "bscan_spi_{}".format(device)
+        name = "bscan_spi_{}".format(target)
         try:
             platform.build(top, build_name=name)
         except Exception as e:
             print(("ERROR: xilinx_bscan_spi build failed "
-                  "for {}: {}").format(device, e))
+                  "for {}: {}").format(target, e))
             if errors:
                 raise
 
