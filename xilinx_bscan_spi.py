@@ -55,7 +55,7 @@ class JTAG2SPI(mg.Module):
             ("sel", 1),
             ("shift", 1),
             ("capture", 1),
-            ("clk", 1),
+            ("tck", 1),
             ("tdi", 1),
             ("tdo", 1),
         ])
@@ -84,13 +84,13 @@ class JTAG2SPI(mg.Module):
         self.comb += [
                 en.eq(self.jtag.sel & self.jtag.shift),
                 self.cd_sys.rst.eq(self.jtag.sel & self.jtag.capture),
-                self.cd_sys.clk.eq(~self.jtag.clk),
-                self.cd_rise.clk.eq(self.jtag.clk),
+                self.cd_sys.clk.eq(~self.jtag.tck),
+                self.cd_rise.clk.eq(self.jtag.tck),
                 self.cs_n.oe.eq(en),
                 self.clk.oe.eq(en),
                 self.mosi.oe.eq(en),
                 self.miso.oe.eq(0),
-                self.clk.o.eq(self.jtag.clk & ~self.cs_n.o),
+                self.clk.o.eq(self.jtag.tck & ~self.cs_n.o),
                 self.mosi.o.eq(self.jtag.tdi),
         ]
         # Some (Xilinx) bscan cells register TDO (from the fabric) on falling
@@ -201,7 +201,7 @@ class Spartan3(mg.Module):
                     self.macro,
                     o_SHIFT=j2s.jtag.shift, o_SEL1=j2s.jtag.sel,
                     o_CAPTURE=j2s.jtag.capture,
-                    o_DRCK1=j2s.jtag.clk,
+                    o_DRCK1=j2s.jtag.tck,
                     o_TDI=j2s.jtag.tdi, i_TDO1=j2s.jtag.tdo,
                     i_TDO2=0),
         ]
@@ -222,7 +222,7 @@ class Spartan6(mg.Module):
                     "BSCAN_SPARTAN6", p_JTAG_CHAIN=1,
                     o_SHIFT=j2s.jtag.shift, o_SEL=j2s.jtag.sel,
                     o_CAPTURE=j2s.jtag.capture,
-                    o_TCK=j2s.jtag.clk,
+                    o_TCK=j2s.jtag.tck,
                     o_TDI=j2s.jtag.tdi, i_TDO=j2s.jtag.tdo),
         ]
 
@@ -243,12 +243,13 @@ class Series7(mg.Module):
                     "BSCANE2", p_JTAG_CHAIN=1,
                     o_SHIFT=j2s.jtag.shift, o_SEL=j2s.jtag.sel,
                     o_CAPTURE=j2s.jtag.capture,
-                    o_TCK=j2s.jtag.clk,
+                    o_TCK=j2s.jtag.tck,
                     o_TDI=j2s.jtag.tdi, i_TDO=j2s.jtag.tdo),
                 mg.Instance(
                     "STARTUPE2", i_CLK=0, i_GSR=0, i_GTS=0,
-                    i_KEYCLEARB=0, i_PACK=1, i_USRCCLKO=j2s.jtag.clk,
-                    i_USRCCLKTS=0, i_USRDONEO=1, i_USRDONETS=1)
+                    i_KEYCLEARB=0, i_PACK=1,
+                    i_USRCCLKO=j2s.clk.o, i_USRCCLKTS=~j2s.clk.oe,
+                    i_USRDONEO=1, i_USRDONETS=1)
         ]
 
 
@@ -262,23 +263,25 @@ class Ultrascale(mg.Module):
         ])
         self.submodules.j2s0 = j2s0 = JTAG2SPI()
         self.submodules.j2s1 = j2s1 = JTAG2SPI(platform.request("spiflash"))
+        di = mg.Signal(4)
+        self.comb += mg.Cat(j2s0.mosi.i, j2s0.miso.i).eq(di)
         self.specials += [
                 mg.Instance("BSCANE2", p_JTAG_CHAIN=1,
                     o_SHIFT=j2s0.jtag.shift, o_SEL=j2s0.jtag.sel,
                     o_CAPTURE=j2s0.jtag.capture,
-                    o_TCK=j2s0.jtag.clk,
+                    o_TCK=j2s0.jtag.tck,
                     o_TDI=j2s0.jtag.tdi, i_TDO=j2s0.jtag.tdo),
                 mg.Instance("BSCANE2", p_JTAG_CHAIN=2,
                     o_SHIFT=j2s1.jtag.shift, o_SEL=j2s1.jtag.sel,
                     o_CAPTURE=j2s1.jtag.capture,
-                    o_TCK=j2s1.jtag.clk,
+                    o_TCK=j2s1.jtag.tck,
                     o_TDI=j2s1.jtag.tdi, i_TDO=j2s1.jtag.tdo),
                 mg.Instance("STARTUPE3", i_GSR=0, i_GTS=0,
                     i_KEYCLEARB=0, i_PACK=1,
                     i_USRDONEO=1, i_USRDONETS=1,
                     i_USRCCLKO=j2s0.clk.o, i_USRCCLKTS=~j2s0.clk.oe,
                     i_FCSBO=j2s0.cs_n.o, i_FCSBTS=~j2s0.cs_n.oe,
-                    o_DI=mg.Cat(j2s0.mosi.i, j2s0.miso.i, 0, 0),
+                    o_DI=di,
                     i_DO=mg.Cat(j2s0.mosi.o, j2s0.miso.o, 0, 0),
                     i_DTS=mg.Cat(~j2s0.mosi.oe, ~j2s0.miso.oe, 1, 1))
         ]
