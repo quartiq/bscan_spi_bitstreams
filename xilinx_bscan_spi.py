@@ -68,6 +68,7 @@ class JTAG2SPI(mg.Module):
 
         self.cs_n.o.reset = mg.Constant(1)
         self.submodules.fsm = fsm = mg.FSM("IDLE")
+        en = mg.Signal()
         bits = mg.Signal(bits, reset_less=True)
         head = mg.Signal(max=len(bits), reset=len(bits) - 1)
         self.clock_domains.cd_sys = mg.ClockDomain()
@@ -81,12 +82,13 @@ class JTAG2SPI(mg.Module):
             if hasattr(spi, "clk"):  # 7 Series drive it fixed
                 self.specials += self.clk.get_tristate(spi.clk)
         self.comb += [
+                en.eq(self.jtag.sel & self.jtag.shift),
                 self.cd_sys.rst.eq(self.jtag.sel & self.jtag.capture),
                 self.cd_sys.clk.eq(~self.jtag.tck),
                 self.cd_rise.clk.eq(self.jtag.tck),
-                self.cs_n.oe.eq(self.jtag.sel),
-                self.clk.oe.eq(self.jtag.sel),
-                self.mosi.oe.eq(self.jtag.sel),
+                self.cs_n.oe.eq(en),
+                self.clk.oe.eq(en),
+                self.mosi.oe.eq(en),
                 self.miso.oe.eq(0),
                 self.clk.o.eq(self.jtag.tck & ~self.cs_n.o),
                 self.mosi.o.eq(self.jtag.tdi),
@@ -398,13 +400,13 @@ class XilinxBscanSpi(xilinx.XilinxPlatform):
         pu = "PULLUP" if toolchain == "ise" else "PULLUP TRUE"
         cs_n, clk, mosi, miso = pins[:4]
         io = ["spiflash", i,
-            mb.Subsignal("cs_n", mb.Pins(cs_n), mb.Misc(pu)),
-            mb.Subsignal("mosi", mb.Pins(mosi), mb.Misc(pu)),
+            mb.Subsignal("cs_n", mb.Pins(cs_n)),
+            mb.Subsignal("mosi", mb.Pins(mosi)),
             mb.Subsignal("miso", mb.Pins(miso), mb.Misc(pu)),
             mb.IOStandard(std),
             ]
         if clk:
-            io.append(mb.Subsignal("clk", mb.Pins(clk), mb.Misc(pu)))
+            io.append(mb.Subsignal("clk", mb.Pins(clk)))
         for i, p in enumerate(pins[4:]):
             io.append(mb.Subsignal("pullup{}".format(i), mb.Pins(p),
                                 mb.Misc(pu)))
