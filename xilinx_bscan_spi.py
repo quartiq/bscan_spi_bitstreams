@@ -261,12 +261,15 @@ class Series7(mg.Module):
                 # mg.Instance("BUFG", i_I=clk, o_O=j2s.jtag.tck)
         ]
         platform.add_period_constraint(j2s.jtag.tck, 6)
-        self.comb += [
-                platform.request("user_sma_gpio_p").eq(j2s.cs_n.i),
-                platform.request("user_sma_gpio_n").eq(j2s.clk.o),
-                platform.request("user_sma_clock_p").eq(j2s.mosi.o),
-                platform.request("user_sma_clock_n").eq(j2s.miso.i),
-        ]
+        try:
+            self.comb += [
+                    platform.request("user_sma_gpio_p").eq(j2s.cs_n.i),
+                    platform.request("user_sma_gpio_n").eq(j2s.clk.o),
+                    platform.request("user_sma_clock_p").eq(j2s.mosi.o),
+                    platform.request("user_sma_clock_n").eq(j2s.miso.i),
+            ]
+        except mb.ConstraintError:
+            pass
 
 
 class Ultrascale(mg.Module):
@@ -413,14 +416,13 @@ class XilinxBscanSpi(xilinx.XilinxPlatform):
 
     def __init__(self, device, pins, std, toolchain="ise"):
         ios = [self.make_spi(0, pins, std, toolchain)]
-        if device == "xc7k325t-debug":
+        if device == "xc7k325t-ffg900-1":  # debug
             ios += [
                 ("user_sma_clock_p", 0, mb.Pins("L25"), mb.IOStandard("LVCMOS25")),
                 ("user_sma_clock_n", 0, mb.Pins("K25"), mb.IOStandard("LVCMOS25")),
                 ("user_sma_gpio_p", 0, mb.Pins("Y23"), mb.IOStandard("LVCMOS25")),
                 ("user_sma_gpio_n", 0, mb.Pins("Y24"), mb.IOStandard("LVCMOS25")),
             ]
-
         xilinx.XilinxPlatform.__init__(self, device, ios, toolchain=toolchain)
 
     @staticmethod
