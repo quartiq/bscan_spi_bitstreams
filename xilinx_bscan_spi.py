@@ -211,6 +211,7 @@ class Spartan3(mg.Module):
                     o_TDI=j2s.jtag.tdi, i_TDO1=j2s.jtag.tdo,
                     i_TDO2=0),
         ]
+        platform.add_period_constraint(j2s.jtag.tck, 6)
 
 
 class Spartan3A(Spartan3):
