@@ -90,7 +90,11 @@ class JTAG2SPI(mg.Module):
                 self.clk.oe.eq(self.jtag.sel),
                 self.mosi.oe.eq(self.jtag.sel),
                 self.miso.oe.eq(0),
-                self.clk.o.eq(~self.jtag.tck & ~self.cs_n.o),
+                # Do not suppress CLK toggles outside CS_N asserted.
+                # Xilinx USRCCLK0 requires three dummy cycles to do anything
+                # https://www.xilinx.com/support/answers/52626.html
+                # This is fine since CS_N changes only on falling CLK.
+                self.clk.o.eq(~self.jtag.tck),
                 self.jtag.tdo.eq(self.miso.i),
         ]
         # Latency calculation (in half cycles):
