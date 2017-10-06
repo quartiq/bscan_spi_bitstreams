@@ -429,15 +429,16 @@ class XilinxBscanSpi(xilinx.XilinxPlatform):
     @staticmethod
     def make_spi(i, pins, std, toolchain):
         pu = "PULLUP" if toolchain == "ise" else "PULLUP TRUE"
+        pd = "PULLDOWN" if toolchain == "ise" else "PULLDOWN TRUE"
         cs_n, clk, mosi, miso = pins[:4]
         io = ["spiflash", i,
-            mb.Subsignal("cs_n", mb.Pins(cs_n)),
-            mb.Subsignal("mosi", mb.Pins(mosi)),
+            mb.Subsignal("cs_n", mb.Pins(cs_n), mb.Misc(pu)),
+            mb.Subsignal("mosi", mb.Pins(mosi), mb.Misc(pu)),
             mb.Subsignal("miso", mb.Pins(miso), mb.Misc(pu)),
             mb.IOStandard(std),
             ]
         if clk:
-            io.append(mb.Subsignal("clk", mb.Pins(clk)))
+            io.append(mb.Subsignal("clk", mb.Pins(clk), mb.Misc(pd)))
         for i, p in enumerate(pins[4:]):
             io.append(mb.Subsignal("pullup{}".format(i), mb.Pins(p),
                                 mb.Misc(pu)))
