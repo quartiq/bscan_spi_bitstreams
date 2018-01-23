@@ -333,6 +333,7 @@ class XilinxBscanSpi(xilinx.XilinxPlatform):
         ("csg484-2", 1): ["AB5", "W17", "AB17", "Y17", "V13", "W13"],
         ("csg324-2", 1): ["V3", "R15", "T13", "R13", "T14", "V14"],
         ("csg324-1", 1): ["L13", None, "K17", "K18", "L14", "M14"],
+        ("csga324-1", 1): ["M13", None, "K17", "K18", "L14", "M15"],
         ("fbg484-1", 1): ["T19", None, "P22", "R22", "P21", "R21"],
         ("fbg484-1", 2): ["L16", None, "H18", "H19", "G18", "F19"],
         ("fbg676-1", 1): ["C23", None, "B24", "A25", "B22", "A22"],
@@ -390,6 +391,7 @@ class XilinxBscanSpi(xilinx.XilinxPlatform):
         "xc6slx9": ("cpg196-2", 1, "LVCMOS33", Spartan6),
         "xc6slx9t": ("qg144-2", 1, "LVCMOS33", Spartan6),
 
+        "xc7s50": ("csga324-1", 1, "LVCMOS25", Series7),
         "xc7a100t": ("csg324-1", 1, "LVCMOS25", Series7),
         "xc7a15t": ("cpg236-1", 1, "LVCMOS25", Series7),
         "xc7a200t": ("fbg484-1", 1, "LVCMOS25", Series7),
