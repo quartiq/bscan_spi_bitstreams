@@ -275,6 +275,17 @@ class Series7(mg.Module):
             ]
         except mb.ConstraintError:
             pass
+          
+
+class Series7Afc(Series7):
+    
+    def __init__(self, platform):
+        Series7.__init__(self, platform)
+        platform.toolchain.bitstream_commands.extend([
+            "set_property CONFIG_VOLTAGE 2.5 [current_design]",
+            "set_property CFGBVS VCCO [current_design]",
+            "set_property BITSTREAM.CONFIG.OVERTEMPPOWERDOWN Enable [current_design]"
+        ])
 
 
 class Ultrascale(mg.Module):
@@ -343,6 +354,7 @@ class XilinxBscanSpi(xilinx.XilinxPlatform):
         ("ffg901-1", 1): ["V26", None, "R30", "T30", "R28", "T28"],
         ("ffg900-1", 1): ["U19", None, "P24", "R25", "R20", "R21"],
         ("ffg1156-1", 1): ["V30", None, "AA33", "AA34", "Y33", "Y34"],
+        ("ffg1156-1", 2): ["Y27", None, "V28", "V29"],
         ("ffg1157-1", 1): ["AL33", None, "AN33", "AN34", "AK34", "AL34"],
         ("ffg1158-1", 1): ["C24", None, "A23", "A24", "B26", "A26"],
         ("ffg1926-1", 1): ["AK33", None, "AN34", "AN35", "AJ34", "AK34"],
@@ -403,6 +415,7 @@ class XilinxBscanSpi(xilinx.XilinxPlatform):
         "xc7a100t": ("csg324-1", 1, "LVCMOS25", Series7),
         "xc7a15t": ("cpg236-1", 1, "LVCMOS25", Series7),
         "xc7a200t": ("fbg484-1", 1, "LVCMOS25", Series7),
+        "xc7a200t-afc": ("ffg1156-1", 2, "LVCMOS25", Series7Afc),
         "xc7a35t": ("cpg236-1", 1, "LVCMOS25", Series7),
         "xc7a50t": ("cpg236-1", 1, "LVCMOS25", Series7),
         "xc7a75t": ("csg324-1", 1, "LVCMOS25", Series7),
