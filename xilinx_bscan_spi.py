@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 #
-#  Copyright (C) 2015 Robert Jordens <jordens@gmail.com>
+#  Copyright (C) 2015-2019 Robert Jordens <rj@quartiq.de>
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -26,7 +26,7 @@ This migen script produces proxy bitstreams to allow programming SPI flashes
 behind FPGAs.
 
 Bitstream binaries built with this script are available at:
-https://github.com/jordens/bscan_spi_bitstreams
+https://github.com/quartiq/bscan_spi_bitstreams
 
 A JTAG2SPI transfer consists of:
 
