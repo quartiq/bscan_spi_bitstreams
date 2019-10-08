@@ -352,7 +352,6 @@ class XilinxBscanSpi(xilinx.XilinxPlatform):
         ("flg1926-1", 1): ["AK33", None, "AN34", "AN35", "AJ34", "AK34"],
 
         ("ffva1156-2-e", 1): ["G26", None, "M20", "L20", "R21", "R22"],
-        ("ffva1156-2-e", "sayma"): ["K21", None, "M20", "L20", "R21", "R22"],
     }
 
     pinouts = {
@@ -429,7 +428,6 @@ class XilinxBscanSpi(xilinx.XilinxPlatform):
         "xc7vx980t": ("ffg1926-1", 1, "LVCMOS18", Series7),
 
         "xcku040": ("ffva1156-2-e", 1, "LVCMOS18", Ultrascale),
-        "xcku040-sayma": ("ffva1156-2-e", "sayma", "LVCMOS18", Ultrascale),
     }
 
     def __init__(self, device, pins, std, toolchain="ise"):
