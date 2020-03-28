@@ -6,6 +6,7 @@ from nmigen.lib.io import Pin
 from nmigen.build import *
 from nmigen.vendor.lattice_ecp5 import *
 
+import shutil
 
 """This nMigen script produces proxy bitstream to allow programming SPI flashes
 behind FPGAs. It was created based on ./xilinx_bscan_spi.py.
@@ -89,12 +90,12 @@ class JTAGtoSPI(Elaboratable):
             #   it is implied chain 1 is selected until TAP enters TLR state again
             with module.FSM():
                 with module.State("IDLE"):
-                    with module.If(~jtag_rst_n):
+                    with module.If(jtag_rti1):
                         module.d.sync += self.jtag.sel.eq(0)
                         module.next = "TLRST"
                 with module.State("TLRST"):
                     with module.If(~self.jtag.sel):
-                        module.d.sync += self.jtag.sel.eq(jtag_rti1)
+                        module.d.sync += self.jtag.sel.eq(jtag_sel1_capture_or_shift)
                     with module.Else():
                         module.next = "IDLE"
 
@@ -125,7 +126,6 @@ class JTAGtoSPI(Elaboratable):
             ]
 
         m.d.comb += [
-            cd_sync.rst.eq(self.jtag_sel1_capture),
             cd_sync.clk.eq(self.jtag.tck),
             self.cs_n.oe.eq(self.jtag.sel),
             self.clk.oe.eq(self.jtag.sel),
@@ -149,6 +149,7 @@ class JTAGtoSPI(Elaboratable):
         #   JTAG adapter: sample TDO
         with m.FSM() as fsm:
             with m.State("IDLE"):
+                m.d.sync += self.cs_n.o.eq(1)
                 with m.If(self.jtag_sel1_shift & self.jtag.tdi):
                     m.next = "HEAD"
             with m.State("HEAD"):
@@ -159,12 +160,15 @@ class JTAGtoSPI(Elaboratable):
                 with m.If(head == 0):
                     m.next = "XFER"
             with m.State("XFER"):
+                m.d.sync += self.cs_n.o.eq(0)
                 m.d.sync += bits.eq(bits - 1)
                 with m.If(bits == 0):
-                    m.next = "IDLE"
+                    m.next = "XFER_FIN"
+            with m.State("XFER_FIN"):
+                m.d.sync += self.jtag.sel.eq(0)
+                m.next = "IDLE"
         m.d.comb += [
             self.mosi.o.eq(self.jtag.tdi),
-            self.cs_n.o.eq(~fsm.ongoing("XFER"))
         ]
 
         return m
@@ -191,10 +195,6 @@ class LatticeECP5(Elaboratable):
                                  i_USRMCLKI=j2s.clk,
                                  i_USRMCLKTS=0)
 
-        # For some reason, the clk100 must be requested and used to drive a domain in the design
-        m.domains.clk100 = cd_clk100 = ClockDomain(reset_less=True)
-        m.d.comb += cd_clk100.clk.eq(platform.request("clk100").i)
-
         return m
 
 
@@ -213,47 +213,47 @@ class LatticeECP5BscanSpi(LatticeECP5Platform):
                                   name_suffix="1x"))
         return io
 
-    def make_clk():
-        return (
-            Resource("clk100", 0, DiffPairs("P3", "P4", dir="i"),
-                     Clock(100e6), Attrs(IO_TYPE="LVDS"))
-        )
-
-    device     = "LFE5UM-45F"
-    package    = "BG381"
-    speed      = "8"
-    resources  = [*make_spi(), make_clk()]
+    device     = ""
+    package    = ""
+    speed      = ""
+    resources  = [*make_spi()]
     connectors = []
     top_class  = LatticeECP5
 
-    def __init__(self, toolchain="Trellis"):
+    def __init__(self, device, package, speed, toolchain="Trellis"):
         LatticeECP5Platform.__init__(self, toolchain=toolchain)
+        self.device = device
+        self.package = package
+        self.speed = speed
 
 
 class LatticeBscanSpi:
     targets = {
-        "LFE5UM-45F": LatticeECP5BscanSpi
+        "LFE5UM-45F": (LatticeECP5BscanSpi, ("LFE5UM-45F", "BG381", "8")),
+        "LFE5UM5G-85F": (LatticeECP5BscanSpi, ("LFE5UM5G-85F", "BG381", "8")),
     }
 
     def __new__(cls, target, *args, **kwargs):
-        newcls = cls.targets[target]
+        target_params = cls.targets[target]
+        newcls = target_params[0]
         self = newcls.__new__(newcls, *args, **kwargs)
-        newcls.__init__(self, *args, **kwargs)
+        newcls.__init__(self, *(target_params[1] + args), **kwargs)
         return self
 
     @classmethod
     def make(cls, target, errors=False):
-        Top = cls.targets[target].top_class
+        Top = cls.targets[target][0].top_class
         platform = cls(target, Top.toolchain)
         top = Top(platform)
         name = "bscan_spi_{}".format(target.lower().replace("-",""))
         try:
             platform.build(top, name=name)
+            shutil.copyfile(f"build/{name}.svf", f"{name}.svf")
         except Exception as e:
             print(("ERROR: lattice_bscan_spi build failed for {}: {}")
                   .format(target, e))
             if errors:
-                raise
+                raise e
 
 
 if __name__ == "__main__":
@@ -267,5 +267,5 @@ if __name__ == "__main__":
     p.add_argument("-p", "--parallel", default=1, type=int,
                    help="number of parallel builds (default: %(default)s)")
     args = p.parse_args()
-    pool = multiprocessing.Pool(args.parallel)
-    pool.map(LatticeBscanSpi.make, args.device, chunksize=1)
+    with multiprocessing.Pool(args.parallel) as pool:
+        pool.map(LatticeBscanSpi.make, args.device, chunksize=1)
