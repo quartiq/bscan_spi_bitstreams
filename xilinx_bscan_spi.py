@@ -340,6 +340,7 @@ class XilinxBscanSpi(xilinx.XilinxPlatform):
         ("fbg484-1", 2): ["L16", None, "H18", "H19", "G18", "F19"],
         ("fgga484-1", 1): ["N17", None, "M21", "M22", "N21", "N22"],
         ("fbg676-1", 1): ["C23", None, "B24", "A25", "B22", "A22"],
+        ("ffg676-2", 1): ["C23", None, "B24", "A25", "B22", "A22"],
         ("ffg901-1", 1): ["V26", None, "R30", "T30", "R28", "T28"],
         ("ffg900-1", 1): ["U19", None, "P24", "R25", "R20", "R21"],
         ("ffg1156-1", 1): ["V30", None, "AA33", "AA34", "Y33", "Y34"],
@@ -408,6 +409,7 @@ class XilinxBscanSpi(xilinx.XilinxPlatform):
         "xc7a12t": ("cpg238-1", 1, "LVCMOS25", Series7),
         "xc7a25t": ("cpg238-1", 1, "LVCMOS25", Series7),
         "xc7k160t": ("fbg484-1", 2, "LVCMOS25", Series7),
+        "xc7k160t-marble": ("ffg676-2", 1, "LVCMOS25", Series7),
         "xc7k325t": ("fbg676-1", 1, "LVCMOS25", Series7),
         "xc7k325t-debug": ("ffg900-1", 1, "LVCMOS25", Series7),
         "xc7k355t": ("ffg901-1", 1, "LVCMOS25", Series7),
@@ -466,7 +468,7 @@ class XilinxBscanSpi(xilinx.XilinxPlatform):
         device = target.split("-", 1)[0]
         platform = cls("{}-{}".format(device, pkg), pins, std, Top.toolchain)
         top = Top(platform)
-        name = "bscan_spi_{}".format(target)
+        name = "bscan_spi_{}".format(target.replace('-', '_'))
         try:
             platform.build(top, build_name=name)
         except Exception as e:
