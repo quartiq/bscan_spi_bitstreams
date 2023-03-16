@@ -1,0 +1,2 @@
+git+https://github.com/m-labs/migen.git@3ffd64c#egg=migen
+git+https://github.com/m-labs/misoc.git@d845514#egg=misoc
